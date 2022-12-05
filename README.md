@@ -18,5 +18,5 @@ Grafana agent with our tweaks ready to use
      grafana-agent -config.file /etc/grafana-agent.yaml
      
      
-     
+    wget https://raw.githubusercontent.com/NextNet-Works/NNW-Unifed-Telemetry-Agent/main/nnw-grafana-agent.yml
      
