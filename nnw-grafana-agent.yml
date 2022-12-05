@@ -1,0 +1,182 @@
+server:
+  log_level: info
+  
+integrations:
+  agent:
+    enabled: true
+    relabel_configs:
+    - action: replace
+      source_labels:
+      - agent_hostname
+      target_label: instance
+  node_exporter:
+    enabled: true
+    relabel_configs:
+    - replacement: hostname
+      target_label: instance
+  prometheus_remote_write:
+  - basic_auth:
+      password: eyJrIjoiZTEzNmE1ZjhlNzcwZDQzODRkZGE4MzlkMzAxOTkxNjgyNjVhM2Y4NiIsIm4iOiJzdGFjay00NDc5ODEtZWFzeXN0YXJ0LXByb20tcHVibGlzaGVyIiwiaWQiOjcyMDU1NH0=
+      username: 596733
+    url: https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
+logs:
+  configs:
+  - clients:
+    - basic_auth:
+        password: eyJrIjoiZTEzNmE1ZjhlNzcwZDQzODRkZGE4MzlkMzAxOTkxNjgyNjVhM2Y4NiIsIm4iOiJzdGFjay00NDc5ODEtZWFzeXN0YXJ0LXByb20tcHVibGlzaGVyIiwiaWQiOjcyMDU1NH0=
+        username: 297336
+      url: https://logs-prod-eu-west-0.grafana.net/loki/api/v1/push ##from original grafana-agent config
+    - url: https://297336:eyJrIjoiOTA5OGY3ZjcyMDQ4NjRhODg4ZjdhMzM4MjZkNmEzOWNmNjI4NzY4ZiIsIm4iOiJubnctbG9raS1rZXktMSIsImlkIjo3MjA1NTR9@logs-prod-eu-west-0.grafana.net/api/prom/push   ##from original loki config            
+    name: integrations
+    positions:
+      filename: /tmp/positions.yaml
+    scrape_configs:
+    - job_name: integrations/agent
+      journal:
+        labels:
+          instance: <hostname>
+          job: integrations/agent
+        max_age: 24h
+      pipeline_stages:
+      - match:
+          action: drop
+          drop_counter_reason: only_keep_grafana_agent_logs
+          selector: '{unit!="grafana-agent.service"}'
+      - regex:
+          expression: (level=(?P<log_level>[\s]*debug|warn|info|error))
+      - labels:
+          level: log_level
+      relabel_configs:
+      - source_labels:
+        - __journal__systemd_unit
+        target_label: unit
+    - job_name: integrations/agent
+      pipeline_stages:
+      - json:
+          expressions:
+            message: message
+      - regex:
+          expression: (level=(?P<log_level>[\s]*debug|warn|info|error))
+      - labels:
+          level: log_level
+      - output:
+          source: message
+      relabel_configs:
+      - source_labels:
+        - computer
+        target_label: instance
+      - replacement: grafana-agent.service
+        target_label: unit
+      windows_events:
+        bookmark_path: ./bookmark-application.xml
+        eventlog_name: Application
+        labels:
+          job: integrations/agent
+        use_incoming_timestamp: true
+        xpath_query: '*[System[Provider[@Name=''Grafana Agent'']]]'
+    - job_name: integrations/node_exporter_journal_scrape
+      journal:
+        labels:
+          instance: hostname
+          job: integrations/node_exporter
+        max_age: 24h
+      relabel_configs:
+      - source_labels:
+        - __journal__systemd_unit
+        target_label: unit
+      - source_labels:
+        - __journal__boot_id
+        target_label: boot_id
+      - source_labels:
+        - __journal__transport
+        target_label: transport
+      - source_labels:
+        - __journal_priority_keyword
+        target_label: level
+    - job_name: integrations/node_exporter_direct_scrape
+      static_configs:
+      - labels:
+          __path__: /var/log/{syslog,messages,*.log}
+          instance: hostname
+          job: integrations/node_exporter
+        targets:
+        - localhost
+    - job_name: cdnode-logs
+      static_configs:
+        - targets: [localhost]
+          labels:
+              job: cdnode-logs
+              __path__: /var/log/cdnode.log      ### edit depends on your log directoy (above we capture /var/log/*.log regardless)
+    target_config:
+      sync_period: 10s
+
+metrics:
+  configs:
+  - name: integrations
+    remote_write:
+    - basic_auth:
+        password: eyJrIjoiZTEzNmE1ZjhlNzcwZDQzODRkZGE4MzlkMzAxOTkxNjgyNjVhM2Y4NiIsIm4iOiJzdGFjay00NDc5ODEtZWFzeXN0YXJ0LXByb20tcHVibGlzaGVyIiwiaWQiOjcyMDU1NH0=
+        username: 596733
+      url: https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
+    scrape_configs:
+    - bearer_token: <your OAuth2 token>
+      job_name: integrations/awx
+      metrics_path: /api/v2/metrics/
+      static_configs:
+      - targets:
+        - awx.hostname
+  - name: Agent-Noria-TN-VN2-T
+    scrape_configs:
+      - job_name: noria
+        static_configs:
+        - targets: ['172.24.95.201:26660'] ### need to edit the IP (26660 is your exposed prometheus port in config.toml)
+      
+      - job_name: node
+        static_configs:
+        - targets: ['172.24.95.201:9100'] ### need to edit the IP (9100 is your node-exporter prometheus metrics)
+          labels:
+            instance: 'validator'
+
+      - job_name: validators
+        static_configs:
+        - targets: ['172.24.95.201:9300'] ### need to edit the IP (9300 is your cosmos-exporter prometheus metrics)
+          labels:
+            instance: 'validator'
+            
+      - job_name: validator
+        metrics_path: /metrics/validator
+        static_configs:
+        - targets: ['noriavaloper12hsjlael8wcfwa2f36y53g3pd4pj2g3nm9tqks']  ### need to edit
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_address
+          - source_labels: [__param_address]
+            target_label: instance
+          - target_label: __address__
+            replacement: 172.24.95.201:9300
+
+      - job_name: wallet 
+        metrics_path: /metrics/wallet
+        static_configs:
+        - targets: ['noria12hsjlael8wcfwa2f36y53g3pd4pj2g3n7kk683']  ### need to edit
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_address
+          - source_labels: [__param_address]
+            target_label: instance
+          - target_label: __address__
+            replacement: 172.24.95.201:9300          
+
+
+    remote_write:
+      - url: https://prometheus-prod-01-eu-west-0.grafana.net/api/prom/push
+        basic_auth:
+          username: 596733
+          password: eyJrIjoiNWQ2OWVhZTE3OTI1YmI0MDIyNDQ0MjEwOGNhMTU3OTIzNDY2Y2VmYyIsIm4iOiJubnctZ2ZhLWFwaS1rZXktMSIsImlkIjo3MjA1NTR9
+
+  global:
+    scrape_interval: 60s
+#    scrape_timeout: 10s
+#    evaluation_interval: 15s
+  wal_directory: /tmp/grafana-agent-wal
+
